@@ -2,6 +2,8 @@ import streamlit as st
 import torch
 import open_clip
 from PIL import Image
+import io
+import base64
 
 # --- Cấu hình trang ---
 st.set_page_config(
@@ -23,12 +25,21 @@ model, preprocess, tokenizer = load_model()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = model.to(device)
 
-# --- Tiêu đề ---
+# --- Giao diện ---
 st.title("🚗 Phân loại loại xe dự án OD")
 st.caption("Nhận dạng các loại xe thông dụng bằng mô hình AI CLIP của OpenAI")
 
-# --- Upload ảnh ---
-uploaded_file = st.file_uploader("📂 Chọn ảnh xe để phân loại", type=["jpg", "jpeg", "png"])
+st.write("📸 Bạn có thể **chọn ảnh hoặc dán trực tiếp (Ctrl + V)** vào đây:")
+
+# --- Chức năng tải hoặc dán ảnh ---
+uploaded_file = st.file_uploader("📂 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
+
+# Dán ảnh từ clipboard (base64)
+pasted_image_data = st.experimental_get_query_params().get("pasted_image", [None])[0]
+
+if pasted_image_data:
+    image_bytes = base64.b64decode(pasted_image_data)
+    uploaded_file = io.BytesIO(image_bytes)
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
@@ -58,12 +69,13 @@ if uploaded_file is not None:
             for idx, val in zip(indices, values):
                 st.write(f"**{labels[idx].upper()}**: {val.item() * 100:.2f}%")
 
-# --- Footer bản quyền cố định ---
+else:
+    st.info("👉 Dán ảnh (Ctrl + V) hoặc tải ảnh để bắt đầu.")
+
+# --- Footer bản quyền ---
 st.markdown("""
 <style>
-footer {
-    visibility: hidden;
-}
+footer {visibility: hidden;}
 .footer-text {
     position: fixed;
     left: 0;
