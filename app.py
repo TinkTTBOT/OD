@@ -1,60 +1,84 @@
 import streamlit as st
-from PIL import Image
 import torch
 import open_clip
+from PIL import Image
 
-# --- Tải model ---
+# --- Cấu hình trang ---
+st.set_page_config(
+    page_title="Phân loại xe dự án OD",
+    page_icon="🚗",
+    layout="centered",
+)
+
+# --- Hàm tải mô hình ---
 @st.cache_resource
 def load_model():
-    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        'ViT-B-32', pretrained='openai'
+    )
     tokenizer = open_clip.get_tokenizer('ViT-B-32')
     return model, preprocess, tokenizer
 
 model, preprocess, tokenizer = load_model()
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
 
-# --- Danh sách nhãn ---
-labels = [
-    "SUV", "Sedan", "Truck", "Van", "Bus", "Pickup Truck",
-    "Hatchback", "Minivan", "Wagon", "Coupe", "Convertible"
-]
+# --- Tiêu đề ---
+st.title("🚗 Phân loại loại xe dự án OD")
+st.caption("Nhận dạng các loại xe thông dụng bằng mô hình AI CLIP của OpenAI")
 
-st.title("🚗 Phân loại xe bằng AI (CLIP)")
-st.write("Tải lên hoặc dán ảnh xe để hệ thống xác định loại xe chính xác nhất.")
+# --- Upload ảnh ---
+uploaded_file = st.file_uploader("📂 Chọn ảnh xe để phân loại", type=["jpg", "jpeg", "png"])
 
-# --- Upload hoặc dán ảnh ---
-uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["png", "jpg", "jpeg"])
-image = None
-
-if uploaded_file:
+if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Ảnh đã tải lên", use_column_width=True)
-else:
-    st.info("👉 Hãy tải ảnh xe hoặc dán ảnh vào đây.")
+    st.image(image, caption="Ảnh đã chọn", use_container_width=True)
 
-# --- Nút phân loại ---
-if st.button("🔍 Phân loại"):
-    if image is not None:
-        with st.spinner("⏳ Đang phân tích ảnh..."):
-            image_input = preprocess(image).unsqueeze(0)
+    if st.button("🔍 Phân loại"):
+        with st.spinner("Đang xử lý bằng AI..."):
+            image_input = preprocess(image).unsqueeze(0).to(device)
 
-            text_inputs = tokenizer([f"a photo of a {label}" for label in labels])
+            labels = [
+                "sedan", "suv", "van", "minivan", "truck",
+                "pickup truck", "bus", "hatchback", "wagon", "coupe"
+            ]
+            text_tokens = tokenizer(labels).to(device)
+
             with torch.no_grad():
                 image_features = model.encode_image(image_input)
-                text_features = model.encode_text(text_inputs)
+                text_features = model.encode_text(text_tokens)
 
-                # Chuẩn hóa vector
                 image_features /= image_features.norm(dim=-1, keepdim=True)
                 text_features /= text_features.norm(dim=-1, keepdim=True)
 
-                # Tính độ tương đồng
-                probs = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-                probs = probs[0].tolist()
+                similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+                values, indices = similarity[0].topk(len(labels))
 
-            # --- Kết quả chính ---
-            top_idx = torch.argmax(torch.tensor(probs)).item()
-            top_label = labels[top_idx]
-            top_prob = probs[top_idx] * 100
+            st.success("✅ Kết quả phân loại:")
+            for idx, val in zip(indices, values):
+                st.write(f"**{labels[idx].upper()}**: {val.item() * 100:.2f}%")
 
-        st.success(f"✅ **Kết quả:** {top_label} ({top_prob:.2f}%)")
-    else:
-        st.warning("⚠️ Bạn cần chọn ảnh trước khi phân loại.")
+# --- Footer bản quyền cố định ---
+st.markdown("""
+<style>
+footer {
+    visibility: hidden;
+}
+.footer-text {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #f1f3f6;
+    color: #333;
+    text-align: center;
+    padding: 10px;
+    font-size: 14px;
+    border-top: 1px solid #ddd;
+}
+</style>
+
+<div class="footer-text">
+    🄫 2025 Bản quyền thuộc về <b>Dino (Thien)</b> · Công ty <b>AIWORX</b>
+</div>
+""", unsafe_allow_html=True)
