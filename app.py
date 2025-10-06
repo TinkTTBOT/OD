@@ -1,125 +1,112 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk, ImageGrab
+import streamlit as st
+from PIL import Image
 import torch
-import clip
-from torchvision import transforms
+import open_clip
+import numpy as np
 import io
+import base64
 
-# --- Cấu hình ---
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("ViT-B/32", device=DEVICE)
-CAR_LABELS = ["Sedan", "SUV", "Truck", "Van"]
+# =============================
+# 🏁 CẤU HÌNH CƠ BẢN
+# =============================
+st.set_page_config(page_title="Phân loại xe bằng AI (CLIP)", page_icon="🚗", layout="centered")
 
-# --- Hàm nhận diện ---
-def predict_image(image_pil):
-    image = preprocess(image_pil).unsqueeze(0).to(DEVICE)
-    text = clip.tokenize([f"a photo of a {label}" for label in CAR_LABELS]).to(DEVICE)
-    with torch.no_grad():
-        logits_per_image, _ = model(image, text)
-        probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
-    results = list(zip(CAR_LABELS, probs))
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results
+st.title("🚗 Phân loại xe bằng AI (CLIP)")
+st.write("Tải ảnh hoặc **dán ảnh (Ctrl + V)** để AI phân loại loại xe.")
 
-# --- Ứng dụng chính ---
-class CarClassifierApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("🚗 Phân loại xe dự án OD")
-        self.root.geometry("720x680")
-        self.root.configure(bg="#f2f2f2")
+# =============================
+# 📦 TẢI MODEL
+# =============================
+@st.cache_resource
+def load_model():
+    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+    tokenizer = open_clip.get_tokenizer('ViT-B-32')
+    return model, preprocess, tokenizer
 
-        self.image_path = None
-        self.image_pil = None
-        self.tk_image = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess, tokenizer = load_model()
+model.to(device).eval()
 
-        # --- Nút chọn ảnh ---
-        self.btn_select = tk.Button(
-            root, text="📁 Chọn ảnh", command=self.choose_image,
-            bg="#dbeafe", fg="black", font=("Arial", 11, "bold"),
-            relief="groove", width=15
-        )
-        self.btn_select.pack(pady=8)
+# =============================
+# 📷 GIAO DIỆN TẢI ẢNH
+# =============================
 
-        # --- Nút dán ảnh ---
-        self.btn_paste = tk.Button(
-            root, text="📋 Dán ảnh (Ctrl+V)", command=self.paste_image,
-            bg="#fde68a", fg="black", font=("Arial", 11, "bold"),
-            relief="groove", width=15
-        )
-        self.btn_paste.pack(pady=4)
+st.markdown("""
+<style>
+div[data-testid="stFileUploader"] > div {
+    justify-content: center;
+}
+</style>
+""", unsafe_allow_html=True)
 
-        # --- Nút phân loại ---
-        self.btn_predict = tk.Button(
-            root, text="🔍 Phân loại", command=self.classify_image,
-            bg="#bbf7d0", fg="black", font=("Arial", 11, "bold"),
-            relief="groove", width=15
-        )
-        self.btn_predict.pack(pady=4)
+uploaded_file = st.file_uploader("**Chọn ảnh xe**", type=["jpg", "jpeg", "png"], label_visibility="collapsed")
 
-        # --- Khung ảnh ---
-        self.canvas_frame = tk.Frame(root, bg="white", bd=1, relief="solid")
-        self.canvas_frame.pack(padx=20, pady=15)
-        self.canvas = tk.Canvas(self.canvas_frame, width=560, height=330, bg="white", highlightthickness=0)
-        self.canvas.pack()
+# --- Dán ảnh bằng clipboard ---
+st.markdown("""
+<hr>
+<p style='text-align:center;'>Hoặc dán ảnh bằng <b>Ctrl + V</b> (hỗ trợ trình duyệt Chrome / Edge)</p>
+<input type="file" accept="image/*" id="paster" style="display:none">
+<script>
+document.addEventListener('paste', function(event) {
+  const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf('image') !== -1) {
+      const file = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = e.target.result.split(',')[1];
+        const url = window.location.href.split('?')[0] + "?pasted=" + encodeURIComponent(data);
+        window.location.href = url;
+      };
+      reader.readAsDataURL(file);
+      break;
+    }
+  }
+});
+</script>
+""", unsafe_allow_html=True)
 
-        # --- Kết quả ---
-        self.result_label = tk.Label(root, text="", bg="#f2f2f2", font=("Consolas", 11))
-        self.result_label.pack(pady=10)
+# --- Kiểm tra ảnh đã chọn hoặc dán ---
+paste_img_data = st.experimental_get_query_params().get("pasted", [None])[0]
+if uploaded_file:
+    img = Image.open(uploaded_file).convert("RGB")
+elif paste_img_data:
+    img_data = base64.b64decode(paste_img_data)
+    img = Image.open(io.BytesIO(img_data)).convert("RGB")
+else:
+    img = None
 
-        # --- Phím tắt Ctrl+V ---
-        root.bind("<Control-v>", lambda e: self.paste_image())
+# =============================
+# 🧠 PHÂN LOẠI ẢNH
+# =============================
+if img:
+    st.image(img, caption="Ảnh đã chọn", width=400)
 
-    # --- Chọn ảnh từ file ---
-    def choose_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png")])
-        if not file_path:
-            return
-        img = Image.open(file_path).convert("RGB")
-        self.image_path = file_path
-        self.image_pil = img
-        self.display_image(img)
+    if st.button("🔍 Phân loại"):
+        with st.spinner("AI đang phân tích..."):
+            input_tensor = preprocess(img).unsqueeze(0).to(device)
 
-    # --- Dán ảnh từ clipboard ---
-    def paste_image(self):
-        try:
-            img = ImageGrab.grabclipboard()
-            if img is None:
-                messagebox.showwarning("Thông báo", "Không có ảnh trong clipboard!")
-                return
-            img = img.convert("RGB")
-            self.image_pil = img
-            self.image_path = None
-            self.display_image(img)
-        except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể dán ảnh!\n{e}")
+            # Các nhóm xe
+            labels = [
+                "sedan", "hatchback", "wagon", "minivan",
+                "SUV", "pickup truck", "truck", "van", "bus"
+            ]
+            text = [f"a photo of a {l}" for l in labels]
+            text_tokens = tokenizer(text).to(device)
 
-    # --- Hiển thị ảnh ---
-    def display_image(self, img):
-        max_w, max_h = 560, 330
-        ratio = min(max_w / img.width, max_h / img.height)
-        new_size = (int(img.width * ratio), int(img.height * ratio))
-        img_resized = img.resize(new_size, Image.LANCZOS)
-        self.tk_image = ImageTk.PhotoImage(img_resized)
-        self.canvas.delete("all")
-        x = (560 - new_size[0]) // 2
-        y = (330 - new_size[1]) // 2
-        self.canvas.create_image(x, y, anchor="nw", image=self.tk_image)
+            with torch.no_grad():
+                image_features = model.encode_image(input_tensor)
+                text_features = model.encode_text(text_tokens)
+                image_features /= image_features.norm(dim=-1, keepdim=True)
+                text_features /= text_features.norm(dim=-1, keepdim=True)
+                similarity = (image_features @ text_features.T).squeeze(0).softmax(dim=0)
 
-    # --- Phân loại ---
-    def classify_image(self):
-        if self.image_pil is None:
-            messagebox.showerror("Lỗi", "Vui lòng chọn hoặc dán ảnh trước!")
-            return
-        results = predict_image(self.image_pil)
-        text = "📊 Xác suất:\n"
-        for name, prob in results:
-            text += f"{name:<10}: {prob*100:5.2f}%\n"
-        self.result_label.config(text=text)
+            probs = similarity.cpu().numpy()
+            results = sorted(zip(labels, probs), key=lambda x: x[1], reverse=True)
 
-# --- Khởi động ---
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = CarClassifierApp(root)
-    root.mainloop()
+            st.success("✅ Kết quả phân loại:")
+            for label, prob in results:
+                st.write(f"**{label.upper()}**: {prob * 100:.2f}%")
+
+else:
+    st.info("⬆️ Hãy chọn hoặc dán ảnh để bắt đầu.")
