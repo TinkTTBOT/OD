@@ -39,17 +39,20 @@ model.to(device)
 # --- Danh sách nhãn ---
 labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN", "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
 
+# --- Lưu ảnh dán trong session_state ---
+if "pasted_image" not in st.session_state:
+    st.session_state.pasted_image = None
+
 # --- Giao diện upload/dán ảnh ---
 st.markdown("🖼️ **Bạn có thể chọn ảnh hoặc dán trực tiếp (Ctrl + V):**")
 uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
-pasted_image_data = st.query_params.get("pasted_image", [None])[0]
 
 # --- Lấy ảnh ---
-if pasted_image_data:
-    image_bytes = base64.b64decode(pasted_image_data.split(",")[1])
-    image = Image.open(io.BytesIO(image_bytes))
-elif uploaded_file:
+if uploaded_file:
     image = Image.open(uploaded_file)
+    st.session_state.pasted_image = image
+elif st.session_state.pasted_image:
+    image = st.session_state.pasted_image
 else:
     st.info("📋 Dán ảnh (Ctrl + V) hoặc tải ảnh để bắt đầu.")
     image = None
@@ -72,7 +75,7 @@ if image is not None:
     for label, prob in zip(labels, probs):
         st.write(f"**{label}**: {prob * 100:.2f}%")
 
-# --- Script hỗ trợ dán ảnh ---
+# --- Script hỗ trợ dán ảnh (lưu vào session_state, không reload) ---
 st.markdown("""
 <script>
 document.addEventListener('paste', async (event) => {
@@ -83,9 +86,14 @@ document.addEventListener('paste', async (event) => {
             const reader = new FileReader();
             reader.onload = function(e) {
                 const base64Image = e.target.result;
-                const queryParams = new URLSearchParams(window.location.search);
-                queryParams.set("pasted_image", base64Image);
-                window.location.search = queryParams.toString();
+                // Gửi base64 lên Streamlit qua streamlit.setComponentValue
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = 'pasted_image_input';
+                input.value = base64Image;
+                input.style.display = 'none';
+                document.body.appendChild(input);
+                input.dispatchEvent(new Event('change'));
             };
             reader.readAsDataURL(blob);
         }
