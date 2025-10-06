@@ -10,7 +10,7 @@ torch.backends.cudnn.deterministic = True
 gc.collect()
 
 st.set_page_config(
-    page_title="Phân loại Loại Xe Tự động bằng AI",
+    page_title="Phân loại Loại Xe OD",
     page_icon="🚗",
     layout="wide"
 )
@@ -42,7 +42,7 @@ prompts = [f"A photo of a {label} car" for label in labels]
 # --- GIAO DIỆN CHÍNH (MAIN UI) ---
 # ===================================================================
 
-st.title("🚗 Phân loại Loại Xe Tự động bằng AI (Model CLIP)")
+st.title("🚗 Phân loại Loại Xe OD")
 st.markdown("Bạn có thể nhấn **Enter** sau khi tải ảnh để phân loại.")
 
 # Tạo hai cột để bố cục đẹp hơn
