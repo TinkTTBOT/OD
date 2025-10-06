@@ -1,13 +1,16 @@
 import streamlit as st
-import torch
-import open_clip
+from streamlit_paste_image import image_paste
 from PIL import Image
-import io, base64
+import torch, open_clip
 
 # --- Cấu hình trang ---
-st.set_page_config(page_title="Phân loại xe dự án OD", page_icon="🚗", layout="centered")
+st.set_page_config(
+    page_title="Phân loại xe dự án OD",
+    page_icon="🚗",
+    layout="centered"
+)
 
-# --- CSS ---
+# --- CSS giao diện ---
 st.markdown("""
     <style>
     body { background-color: #0E1117; color: white; }
@@ -28,7 +31,9 @@ st.caption("Nhận dạng các loại xe thông dụng bằng mô hình AI CLIP 
 # --- Load model ---
 @st.cache_resource
 def load_model():
-    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        'ViT-B-32', pretrained='laion2b_s34b_b79k'
+    )
     tokenizer = open_clip.get_tokenizer('ViT-B-32')
     return model, preprocess, tokenizer
 
@@ -36,30 +41,20 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess, tokenizer = load_model()
 model.to(device)
 
-labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN", "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
+labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN", 
+          "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
 
-# --- Session state để lưu ảnh ---
-if "image" not in st.session_state:
-    st.session_state.image = None
-
-# --- Upload hoặc paste base64 ---
-uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
-paste_base64 = st.text_area("📋 Dán ảnh dưới dạng base64 ở đây (Ctrl+V) hoặc bỏ trống", height=50)
-
+# --- Nhận ảnh Ctrl+V trực tiếp ---
+st.markdown("🖼️ **Paste ảnh trực tiếp (Ctrl+V) hoặc upload ảnh:**")
+image = image_paste("📋 Dán ảnh vào đây (Ctrl+V)")
+uploaded_file = st.file_uploader("📁 Hoặc chọn ảnh từ máy", type=["jpg","jpeg","png"])
 if uploaded_file:
-    st.session_state.image = Image.open(uploaded_file)
-elif paste_base64:
-    try:
-        image_bytes = base64.b64decode(paste_base64.split(",")[-1])
-        st.session_state.image = Image.open(io.BytesIO(image_bytes))
-    except:
-        st.warning("❌ Base64 không hợp lệ.")
+    image = Image.open(uploaded_file)
 
-image = st.session_state.image
-
-# --- Hiển thị và phân loại ---
+# --- Xử lý và phân loại ---
 if image:
     st.image(image, caption="Ảnh xe", use_column_width=True)
+    
     image_input = preprocess(image).unsqueeze(0).to(device)
     text_tokens = tokenizer(labels).to(device)
 
