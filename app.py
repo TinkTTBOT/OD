@@ -2,36 +2,28 @@ import streamlit as st
 from PIL import Image
 import torch
 import open_clip
-import gc # Import thư viện Garbage Collector
-
-# --- Cấu hình bộ nhớ và PyTorch ---
-# Vô hiệu hóa tính năng dọn dẹp bộ nhớ tự động của PyTorch để ổn định hơn
-torch.backends.cudnn.benchmark = False
-torch.backends.cudnn.deterministic = True
-gc.collect() # Tự dọn dẹp bộ nhớ ngay từ đầu
 
 # Thiết lập cấu hình trang cho chuyên nghiệp hơn
 st.set_page_config(
     page_title="Phân loại Loại Xe Tự động bằng AI",
     page_icon="🚗",
-    layout="wide"
+    layout="wide" # Sử dụng layout rộng để tận dụng không gian màn hình
 )
 
 # --- Tải model ---
 @st.cache_resource
 def load_model():
-    """Tải mô hình CLIP và các thành phần liên quan, ưu tiên CPU để tiết kiệm bộ nhớ."""
+    """Tải mô hình CLIP và các thành phần liên quan."""
     try:
-        # Tải mô hình và gán rõ ràng cho CPU để tránh lỗi VRAM trên các môi trường bị giới hạn
-        device = "cpu"
-        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai', device=device)
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
         tokenizer = open_clip.get_tokenizer('ViT-B-32')
-        return model, preprocess, tokenizer, device
+        return model, preprocess, tokenizer
     except Exception as e:
+        # Xử lý lỗi trong quá trình tải model
         st.error(f"❌ Lỗi khi tải mô hình: Vui lòng kiểm tra kết nối mạng hoặc thư viện đã cài đặt. Chi tiết: {e}")
-        st.stop()
+        st.stop() # Dừng ứng dụng nếu tải model thất bại
 
-model, preprocess, tokenizer, device = load_model()
+model, preprocess, tokenizer = load_model()
 
 # --- Danh sách nhãn (Labels) ---
 labels = [
@@ -47,51 +39,46 @@ prompts = [f"A photo of a {label} car" for label in labels]
 # ===================================================================
 
 st.title("🚗 Phân loại Loại Xe Tự động bằng AI (Model CLIP)")
-st.markdown("Sử dụng mô hình **CLIP** để xác định loại xe. Bạn có thể nhấn **Enter** sau khi tải ảnh để phân loại.")
+st.markdown("Sử dụng mô hình **CLIP** (Contrastive Language–Image Pre-training) để xác định loại xe dựa trên hình ảnh. Kết quả dựa trên độ tương đồng giữa hình ảnh và các loại xe được định nghĩa.")
 
 # Tạo hai cột để bố cục đẹp hơn
 col1, col2 = st.columns([1, 1.5]) 
-image = None # Khởi tạo biến ảnh
-submitted = False # Khởi tạo trạng thái submit
 
-# --- Bắt đầu Form để kích hoạt chức năng Enter ---
-with st.form("classification_form"):
+with col1:
+    st.subheader("1. Tải lên Hình ảnh Xe 📸")
     
-    with col1:
-        st.subheader("1. Tải lên Hình ảnh Xe 📸")
-        
-        # Hướng dẫn người dùng có tính năng KÉO-THẢ (Drag-and-Drop)
-        uploaded_file = st.file_uploader(
-            "📁 Chọn ảnh xe (.png, .jpg, .jpeg) hoặc Kéo và Thả vào đây:", 
-            type=["png", "jpg", "jpeg"],
-            key="file_uploader"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                image = Image.open(uploaded_file).convert("RGB")
-                st.info("💡 Ảnh đã sẵn sàng. Nhấn nút **'Bắt đầu Phân loại'** hoặc nhấn phím **Enter**.")
-            except Exception as e:
-                st.error(f"❌ Không thể xử lý tệp ảnh. Lỗi: {e}")
-        else:
-            st.warning("👉 Vui lòng tải lên một ảnh xe (hoặc kéo thả) để bắt đầu.")
-
-        # Nút phân loại (Nằm trong form)
-        submitted = st.form_submit_button("🔍 Bắt đầu Phân loại", use_container_width=True, type="primary")
+    # Hướng dẫn người dùng có tính năng KÉO-THẢ (Drag-and-Drop)
+    uploaded_file = st.file_uploader(
+        "📁 Chọn ảnh xe (.png, .jpg, .jpeg) từ thiết bị của bạn hoặc **Kéo và Thả** vào đây:", 
+        type=["png", "jpg", "jpeg"]
+    )
+    image = None
+    
+    if uploaded_file is not None:
+        try:
+            image = Image.open(uploaded_file).convert("RGB")
+            st.info("💡 Ảnh đã sẵn sàng. Vui lòng nhấn nút 'Bắt đầu Phân loại' ở cột bên cạnh.")
+        except Exception as e:
+            st.error(f"❌ Không thể xử lý tệp ảnh. Lỗi: {e}")
+    else:
+        st.warning("👉 Vui lòng tải lên một ảnh xe (hoặc kéo thả) để bắt đầu.")
 
 
-# --- Xử lý logic Phân loại sau khi form được gửi (bằng nút hoặc Enter) ---
-if submitted:
+with col2:
+    st.subheader("2. Kết quả Phân loại & Ảnh 📊")
+    
     if image is not None:
-        with col2: # Hiển thị kết quả ở cột 2
-            st.subheader("2. Kết quả Phân loại & Ảnh 📊")
-            st.image(image, caption="Ảnh đã tải lên", use_container_width=True)
-
+        # Hiển thị ảnh, sử dụng tham số use_container_width=True (đã fix lỗi cảnh báo)
+        st.image(image, caption="Ảnh đã tải lên", use_container_width=True)
+        
+        # --- Nút phân loại ---
+        if st.button("🔍 Bắt đầu Phân loại", use_container_width=True, type="primary"):
+            
             with st.spinner("⏳ Đang phân tích ảnh và tính độ tương đồng..."):
                 try:
-                    # Tiền xử lý ảnh và chuyển sang device
-                    image_input = preprocess(image).unsqueeze(0).to(device)
-                    text_inputs = tokenizer(prompts).to(device)
+                    # Tiền xử lý ảnh
+                    image_input = preprocess(image).unsqueeze(0)
+                    text_inputs = tokenizer(prompts)
                     
                     with torch.no_grad():
                         image_features = model.encode_image(image_input)
@@ -114,7 +101,7 @@ if submitted:
                     st.metric(label="Độ Tự Tin (Confidence)", value=f"{top_prob:.2f}%")
 
                     # Hiển thị tất cả kết quả dưới dạng biểu đồ
-                    st.subheader("Chi tiết Độ Tương Đồng:")
+                    st.subheader("Chi tiết Độ Tương Đồng với các loại xe khác:")
                     
                     # Sắp xếp kết quả để hiển thị biểu đồ trực quan
                     results_data = sorted(zip(labels, probs), key=lambda x: x[1], reverse=True)
@@ -123,32 +110,11 @@ if submitted:
                     
                     st.bar_chart({"Loại Xe": chart_labels, "Xác Suất": chart_probs}, x="Loại Xe", y="Xác Suất")
                     
-                    
                 except Exception as e:
                     st.error(f"❌ Đã xảy ra lỗi trong quá trình phân tích: {e}")
-                
-                finally:
-                    # Rất quan trọng: Dọn dẹp bộ nhớ sau khi tính toán
-                    if 'image_input' in locals():
-                        del image_input
-                    if 'text_inputs' in locals():
-                        del text_inputs
-                    if 'image_features' in locals():
-                        del image_features
-                    if 'text_features' in locals():
-                        del text_features
-                    if device == "cuda":
-                        torch.cuda.empty_cache()
-                    gc.collect() # Dọn dẹp bộ nhớ Python
                     
     else:
-        with col2:
-            st.warning("⚠️ Vui lòng tải lên ảnh trước khi nhấn Phân loại (hoặc Enter).")
-
-# --- Hiển thị placeholder nếu chưa có ảnh và chưa nhấn submit lần nào ---
-if image is None and not submitted:
-    with col2:
-        st.subheader("2. Kết quả Phân loại & Ảnh 📊")
+        # Hiển thị placeholder nếu chưa có ảnh
         st.info("Ảnh xe của bạn và kết quả phân loại sẽ hiển thị tại đây.")
         
 # ===================================================================
