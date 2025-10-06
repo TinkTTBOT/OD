@@ -2,6 +2,10 @@ import streamlit as st
 import torch
 import open_clip
 from PIL import Image
+import os
+
+# --- Tắt warning symlink HuggingFace trên Windows ---
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # --- Cấu hình trang ---
 st.set_page_config(
@@ -37,7 +41,7 @@ def load_model():
     tokenizer = open_clip.get_tokenizer('ViT-B-32')
     return model, preprocess, tokenizer
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cpu"  # Chạy chắc chắn trên CPU
 model, preprocess, tokenizer = load_model()
 model.to(device)
 
@@ -49,6 +53,7 @@ uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "p
 if uploaded_file:
     try:
         image = Image.open(uploaded_file).convert("RGB")
+
         # Resize ảnh nếu quá lớn
         max_size = 1024
         if max(image.size) > max_size:
@@ -62,13 +67,13 @@ if uploaded_file:
         image_input = preprocess(image).unsqueeze(0).to(device)
         text_tokens = tokenizer(labels).to(device)
 
-        with torch.no_grad(), torch.cuda.amp.autocast(enabled=(device=="cuda")):
+        with torch.no_grad():
             image_features = model.encode_image(image_input)
             text_features = model.encode_text(text_tokens)
             image_features /= image_features.norm(dim=-1, keepdim=True)
             text_features /= text_features.norm(dim=-1, keepdim=True)
             similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            probs = similarity[0].cpu().numpy()
+            probs = similarity[0].numpy()
 
         st.success("✅ Kết quả phân loại:")
         for label, prob in zip(labels, probs):
@@ -76,6 +81,7 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Xảy ra lỗi khi xử lý ảnh: {e}")
+
 else:
     st.info("📋 Hãy tải lên ảnh xe để bắt đầu phân loại.")
 
