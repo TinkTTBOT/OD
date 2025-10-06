@@ -10,7 +10,8 @@ torch.backends.cudnn.deterministic = True
 gc.collect()
 
 st.set_page_config(
-    page_title="Phân loại Loại Xe OD",
+    # Đổi tiêu đề trang web để chuyên nghiệp hơn
+    page_title="Phân loại Xe hơi bằng AI (CLIP)",
     page_icon="🚗",
     layout="wide"
 )
@@ -42,20 +43,19 @@ prompts = [f"A photo of a {label} car" for label in labels]
 # --- GIAO DIỆN CHÍNH (MAIN UI) ---
 # ===================================================================
 
-st.title("🚗 Phân loại Loại Xe OD")
+st.title("🚗 Hệ thống Phân loại Loại Xe Tự động (CLIP)")
 st.markdown("Bạn có thể nhấn **Enter** sau khi tải ảnh để phân loại.")
 
-# Tạo hai cột để bố cục đẹp hơn
-col1, col2 = st.columns([1, 1.5]) 
-image = None # Khởi tạo biến ảnh
-submitted = False # Khởi tạo trạng thái submit
+# SỬA LỖI GIAO DIỆN: Dùng tỷ lệ [1, 2] hoặc [1, 2.5] để cột 2 có nhiều không gian hơn
+col1, col2 = st.columns([1, 2]) # Tỉ lệ 1:2 giúp ảnh và biểu đồ hiển thị đẹp hơn
+image = None 
+submitted = False 
 
-# --- Bắt đầu Form (Phần này sẽ bao quanh các widget của col1) ---
+# --- Bắt đầu Form (Widget tải ảnh và nút) ---
 with col1:
     with st.form("classification_form"):
         st.subheader("1. Tải lên Hình ảnh Xe 📸")
         
-        # Hướng dẫn người dùng có tính năng KÉO-THẢ (Drag-and-Drop)
         uploaded_file = st.file_uploader(
             "📁 Chọn ảnh xe (.png, .jpg, .jpeg) hoặc Kéo và Thả vào đây:", 
             type=["png", "jpg", "jpeg"],
@@ -64,7 +64,6 @@ with col1:
         
         if uploaded_file is not None:
             try:
-                # Ảnh được xử lý tại đây
                 image = Image.open(uploaded_file).convert("RGB")
                 st.info("💡 Ảnh đã sẵn sàng. Nhấn nút **'Bắt đầu Phân loại'** hoặc nhấn phím **Enter**.")
             except Exception as e:
@@ -72,10 +71,9 @@ with col1:
         else:
             st.warning("👉 Vui lòng tải lên một ảnh xe (hoặc kéo thả) để bắt đầu.")
 
-        # Nút phân loại (Nằm GỌN trong form và col1)
         submitted = st.form_submit_button("🔍 Bắt đầu Phân loại", use_container_width=True, type="primary")
 
-# --- Logic Hiển thị Ảnh Placeholder và Kết quả ---
+# --- Logic Hiển thị Ảnh và Kết quả (Tất cả ở Cột 2) ---
 with col2:
     st.subheader("2. Kết quả Phân loại & Ảnh 📊")
     
@@ -90,7 +88,6 @@ with col2:
                     image_input = preprocess(image).unsqueeze(0).to(device)
                     text_inputs = tokenizer(prompts).to(device)
                     
-                    # Logic tính toán... (giữ nguyên)
                     with torch.no_grad():
                         image_features = model.encode_image(image_input)
                         text_features = model.encode_text(text_inputs)
