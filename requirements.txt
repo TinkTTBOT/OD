@@ -2,3 +2,4 @@ streamlit
 torch
 open_clip_torch
 Pillow
+streamlit-paste-image
