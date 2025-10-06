@@ -1,91 +1,125 @@
-import streamlit as st
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from PIL import Image, ImageTk, ImageGrab
 import torch
-import open_clip
-from PIL import Image
-import os
+import clip
+from torchvision import transforms
+import io
 
-# --- Tắt warning symlink HuggingFace trên Windows ---
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+# --- Cấu hình ---
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess = clip.load("ViT-B/32", device=DEVICE)
+CAR_LABELS = ["Sedan", "SUV", "Truck", "Van"]
 
-# --- Cấu hình trang ---
-st.set_page_config(
-    page_title="Phân loại xe dự án OD",
-    page_icon="🚗",
-    layout="centered"
-)
+# --- Hàm nhận diện ---
+def predict_image(image_pil):
+    image = preprocess(image_pil).unsqueeze(0).to(DEVICE)
+    text = clip.tokenize([f"a photo of a {label}" for label in CAR_LABELS]).to(DEVICE)
+    with torch.no_grad():
+        logits_per_image, _ = model(image, text)
+        probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
+    results = list(zip(CAR_LABELS, probs))
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
 
-# --- CSS giao diện ---
-st.markdown("""
-    <style>
-    body { background-color: #0E1117; color: white; }
-    .stApp { background-color: #0E1117; }
-    footer { visibility: hidden; }
-    .copyright {
-        text-align: center;
-        font-size: 14px;
-        color: #888;
-        margin-top: 40px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- Ứng dụng chính ---
+class CarClassifierApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🚗 Phân loại xe dự án OD")
+        self.root.geometry("720x680")
+        self.root.configure(bg="#f2f2f2")
 
-st.title("🚗 Phân loại loại xe dự án OD")
-st.caption("Nhận dạng các loại xe thông dụng bằng mô hình AI CLIP (OpenCLIP)")
+        self.image_path = None
+        self.image_pil = None
+        self.tk_image = None
 
-# --- Load model ---
-@st.cache_resource
-def load_model():
-    model, _, preprocess = open_clip.create_model_and_transforms(
-        'ViT-B-32', pretrained='laion2b_s34b_b79k'
-    )
-    tokenizer = open_clip.get_tokenizer('ViT-B-32')
-    return model, preprocess, tokenizer
+        # --- Nút chọn ảnh ---
+        self.btn_select = tk.Button(
+            root, text="📁 Chọn ảnh", command=self.choose_image,
+            bg="#dbeafe", fg="black", font=("Arial", 11, "bold"),
+            relief="groove", width=15
+        )
+        self.btn_select.pack(pady=8)
 
-device = "cpu"  # Chạy chắc chắn trên CPU
-model, preprocess, tokenizer = load_model()
-model.to(device)
+        # --- Nút dán ảnh ---
+        self.btn_paste = tk.Button(
+            root, text="📋 Dán ảnh (Ctrl+V)", command=self.paste_image,
+            bg="#fde68a", fg="black", font=("Arial", 11, "bold"),
+            relief="groove", width=15
+        )
+        self.btn_paste.pack(pady=4)
 
-labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN",
-          "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
+        # --- Nút phân loại ---
+        self.btn_predict = tk.Button(
+            root, text="🔍 Phân loại", command=self.classify_image,
+            bg="#bbf7d0", fg="black", font=("Arial", 11, "bold"),
+            relief="groove", width=15
+        )
+        self.btn_predict.pack(pady=4)
 
-# --- Upload ảnh ---
-uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
-if uploaded_file:
-    try:
-        image = Image.open(uploaded_file).convert("RGB")
+        # --- Khung ảnh ---
+        self.canvas_frame = tk.Frame(root, bg="white", bd=1, relief="solid")
+        self.canvas_frame.pack(padx=20, pady=15)
+        self.canvas = tk.Canvas(self.canvas_frame, width=560, height=330, bg="white", highlightthickness=0)
+        self.canvas.pack()
 
-        # Resize ảnh nếu quá lớn
-        max_size = 1024
-        if max(image.size) > max_size:
-            ratio = max_size / max(image.size)
-            new_size = (int(image.width*ratio), int(image.height*ratio))
-            image = image.resize(new_size)
+        # --- Kết quả ---
+        self.result_label = tk.Label(root, text="", bg="#f2f2f2", font=("Consolas", 11))
+        self.result_label.pack(pady=10)
 
-        st.image(image, caption="Ảnh xe", use_column_width=True)
+        # --- Phím tắt Ctrl+V ---
+        root.bind("<Control-v>", lambda e: self.paste_image())
 
-        # --- Xử lý ảnh và phân loại ---
-        image_input = preprocess(image).unsqueeze(0).to(device)
-        text_tokens = tokenizer(labels).to(device)
+    # --- Chọn ảnh từ file ---
+    def choose_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png")])
+        if not file_path:
+            return
+        img = Image.open(file_path).convert("RGB")
+        self.image_path = file_path
+        self.image_pil = img
+        self.display_image(img)
 
-        with torch.no_grad():
-            image_features = model.encode_image(image_input)
-            text_features = model.encode_text(text_tokens)
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            text_features /= text_features.norm(dim=-1, keepdim=True)
-            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-            probs = similarity[0].numpy()
+    # --- Dán ảnh từ clipboard ---
+    def paste_image(self):
+        try:
+            img = ImageGrab.grabclipboard()
+            if img is None:
+                messagebox.showwarning("Thông báo", "Không có ảnh trong clipboard!")
+                return
+            img = img.convert("RGB")
+            self.image_pil = img
+            self.image_path = None
+            self.display_image(img)
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể dán ảnh!\n{e}")
 
-        st.success("✅ Kết quả phân loại:")
-        for label, prob in zip(labels, probs):
-            st.write(f"**{label}**: {prob * 100:.2f}%")
+    # --- Hiển thị ảnh ---
+    def display_image(self, img):
+        max_w, max_h = 560, 330
+        ratio = min(max_w / img.width, max_h / img.height)
+        new_size = (int(img.width * ratio), int(img.height * ratio))
+        img_resized = img.resize(new_size, Image.LANCZOS)
+        self.tk_image = ImageTk.PhotoImage(img_resized)
+        self.canvas.delete("all")
+        x = (560 - new_size[0]) // 2
+        y = (330 - new_size[1]) // 2
+        self.canvas.create_image(x, y, anchor="nw", image=self.tk_image)
 
-    except Exception as e:
-        st.error(f"❌ Xảy ra lỗi khi xử lý ảnh: {e}")
+    # --- Phân loại ---
+    def classify_image(self):
+        if self.image_pil is None:
+            messagebox.showerror("Lỗi", "Vui lòng chọn hoặc dán ảnh trước!")
+            return
+        results = predict_image(self.image_pil)
+        text = "📊 Xác suất:\n"
+        for name, prob in results:
+            text += f"{name:<10}: {prob*100:5.2f}%\n"
+        self.result_label.config(text=text)
 
-else:
-    st.info("📋 Hãy tải lên ảnh xe để bắt đầu phân loại.")
-
-# --- Bản quyền ---
-st.markdown("""
-<div class="copyright">© Bản quyền bởi <b>Dino (Thien)</b> – Công ty <b>AIWORX</b></div>
-""", unsafe_allow_html=True)
+# --- Khởi động ---
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CarClassifierApp(root)
+    root.mainloop()
