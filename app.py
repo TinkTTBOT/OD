@@ -37,7 +37,7 @@ if st.button("🔍 Phân loại"):
         with st.spinner("⏳ Đang phân tích ảnh..."):
             image_input = preprocess(image).unsqueeze(0)
 
-            text_inputs = tokenizer([f"a photo of a {label}" for label in labels])
+            text_inputs = tokenizer([f"a photo of a {{label}}" for label in labels])
             with torch.no_grad():
                 image_features = model.encode_image(image_input)
                 text_features = model.encode_text(text_inputs)
@@ -59,3 +59,6 @@ if st.button("🔍 Phân loại"):
     else:
         st.warning("⚠️ Bạn cần chọn ảnh trước khi phân loại.")
 
+# --- Thêm thông báo bản quyền ---
+st.markdown("---") # Dùng dòng kẻ ngang để tách biệt
+st.markdown("© Bản quyền thuộc về **Thiện, Công ty AIWORKX**.")
