@@ -2,10 +2,13 @@ import streamlit as st
 import torch
 import open_clip
 from PIL import Image
-import io, base64
 
 # --- Cấu hình trang ---
-st.set_page_config(page_title="Phân loại xe dự án OD", page_icon="🚗", layout="centered")
+st.set_page_config(
+    page_title="Phân loại xe dự án OD",
+    page_icon="🚗",
+    layout="centered"
+)
 
 # --- CSS giao diện ---
 st.markdown("""
@@ -25,10 +28,12 @@ st.markdown("""
 st.title("🚗 Phân loại loại xe dự án OD")
 st.caption("Nhận dạng các loại xe thông dụng bằng mô hình AI CLIP (OpenCLIP)")
 
-# --- Tải mô hình OpenCLIP ---
+# --- Load model ---
 @st.cache_resource
 def load_model():
-    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        'ViT-B-32', pretrained='laion2b_s34b_b79k'
+    )
     tokenizer = open_clip.get_tokenizer('ViT-B-32')
     return model, preprocess, tokenizer
 
@@ -36,63 +41,43 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess, tokenizer = load_model()
 model.to(device)
 
-# --- Danh sách nhãn ---
-labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN", "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
+labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN",
+          "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
 
-# --- Giao diện upload/dán ảnh ---
-st.markdown("🖼️ **Bạn có thể chọn ảnh hoặc dán trực tiếp (Ctrl + V):**")
+# --- Upload ảnh ---
 uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
-pasted_image_data = st.query_params.get("pasted_image", [None])[0]
+if uploaded_file:
+    try:
+        image = Image.open(uploaded_file).convert("RGB")
+        # Resize ảnh nếu quá lớn
+        max_size = 1024
+        if max(image.size) > max_size:
+            ratio = max_size / max(image.size)
+            new_size = (int(image.width*ratio), int(image.height*ratio))
+            image = image.resize(new_size)
 
-# --- Lấy ảnh ---
-if pasted_image_data:
-    image_bytes = base64.b64decode(pasted_image_data.split(",")[1])
-    image = Image.open(io.BytesIO(image_bytes))
-elif uploaded_file:
-    image = Image.open(uploaded_file)
+        st.image(image, caption="Ảnh xe", use_column_width=True)
+
+        # --- Xử lý ảnh và phân loại ---
+        image_input = preprocess(image).unsqueeze(0).to(device)
+        text_tokens = tokenizer(labels).to(device)
+
+        with torch.no_grad(), torch.cuda.amp.autocast(enabled=(device=="cuda")):
+            image_features = model.encode_image(image_input)
+            text_features = model.encode_text(text_tokens)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            text_features /= text_features.norm(dim=-1, keepdim=True)
+            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+            probs = similarity[0].cpu().numpy()
+
+        st.success("✅ Kết quả phân loại:")
+        for label, prob in zip(labels, probs):
+            st.write(f"**{label}**: {prob * 100:.2f}%")
+
+    except Exception as e:
+        st.error(f"❌ Xảy ra lỗi khi xử lý ảnh: {e}")
 else:
-    st.info("📋 Dán ảnh (Ctrl + V) hoặc tải ảnh để bắt đầu.")
-    image = None
-
-# --- Xử lý ảnh ---
-if image is not None:
-    st.image(image, caption="Ảnh xe được tải lên", use_column_width=True)
-    image_input = preprocess(image).unsqueeze(0).to(device)
-    text_tokens = tokenizer(labels).to(device)
-
-    with torch.no_grad(), torch.cuda.amp.autocast():
-        image_features = model.encode_image(image_input)
-        text_features = model.encode_text(text_tokens)
-        image_features /= image_features.norm(dim=-1, keepdim=True)
-        text_features /= text_features.norm(dim=-1, keepdim=True)
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-        probs = similarity[0].cpu().numpy()
-
-    st.success("✅ Kết quả phân loại:")
-    for label, prob in zip(labels, probs):
-        st.write(f"**{label}**: {prob * 100:.2f}%")
-
-# --- Script hỗ trợ dán ảnh ---
-st.markdown("""
-<script>
-document.addEventListener('paste', async (event) => {
-    const items = event.clipboardData.items;
-    for (const item of items) {
-        if (item.type.indexOf('image') !== -1) {
-            const blob = item.getAsFile();
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const base64Image = e.target.result;
-                const queryParams = new URLSearchParams(window.location.search);
-                queryParams.set("pasted_image", base64Image);
-                window.location.search = queryParams.toString();
-            };
-            reader.readAsDataURL(blob);
-        }
-    }
-});
-</script>
-""", unsafe_allow_html=True)
+    st.info("📋 Hãy tải lên ảnh xe để bắt đầu phân loại.")
 
 # --- Bản quyền ---
 st.markdown("""
