@@ -1,7 +1,7 @@
 import streamlit as st
-from streamlit_paste_image import image_paste
+import torch
+import open_clip
 from PIL import Image
-import torch, open_clip
 
 # --- Cấu hình trang ---
 st.set_page_config(
@@ -41,20 +41,16 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess, tokenizer = load_model()
 model.to(device)
 
-labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN", 
+labels = ["SUV", "HATCHBACK", "MINIVAN", "VAN",
           "PICKUP TRUCK", "SEDAN", "TRUCK", "BUS", "WAGON"]
 
-# --- Nhận ảnh Ctrl+V trực tiếp ---
-st.markdown("🖼️ **Paste ảnh trực tiếp (Ctrl+V) hoặc upload ảnh:**")
-image = image_paste("📋 Dán ảnh vào đây (Ctrl+V)")
-uploaded_file = st.file_uploader("📁 Hoặc chọn ảnh từ máy", type=["jpg","jpeg","png"])
+# --- Upload ảnh ---
+uploaded_file = st.file_uploader("📁 Chọn ảnh xe", type=["jpg", "jpeg", "png"])
 if uploaded_file:
     image = Image.open(uploaded_file)
-
-# --- Xử lý và phân loại ---
-if image:
     st.image(image, caption="Ảnh xe", use_column_width=True)
-    
+
+    # --- Xử lý ảnh và phân loại ---
     image_input = preprocess(image).unsqueeze(0).to(device)
     text_tokens = tokenizer(labels).to(device)
 
@@ -69,6 +65,8 @@ if image:
     st.success("✅ Kết quả phân loại:")
     for label, prob in zip(labels, probs):
         st.write(f"**{label}**: {prob * 100:.2f}%")
+else:
+    st.info("📋 Hãy tải lên ảnh xe để bắt đầu phân loại.")
 
 # --- Bản quyền ---
 st.markdown("""
